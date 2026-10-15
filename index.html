@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Controle de Acesso Facial</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <style>
+    :root { --bg:#0b1020; --panel:#131b2e; --panel2:#1a2540; --text:#edf2ff; --muted:#aab6d3; --accent:#76a9ff; --green:#36d399; --red:#ff647c; --border:#2a3858; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:radial-gradient(circle at top,#1a2a4b 0,#0b1020 48%); color:var(--text); min-height:100vh; }
+    main { width:min(1120px,94%); margin:32px auto; }
+    header { margin-bottom:22px; }
+    h1 { margin:0 0 8px; font-size:clamp(1.7rem,4vw,2.5rem); }
+    p { line-height:1.55; }
+    .muted { color:var(--muted); }
+    .layout { display:grid; grid-template-columns:1.1fr .9fr; gap:18px; }
+    .panel { background:rgba(19,27,46,.94); border:1px solid var(--border); border-radius:18px; padding:20px; box-shadow:0 16px 40px #0003; }
+    h2 { margin:0 0 14px; font-size:1.2rem; }
+    label { display:block; margin:12px 0 6px; font-weight:650; }
+    input, select { width:100%; padding:12px; border-radius:10px; border:1px solid var(--border); background:#0d1426; color:var(--text); font:inherit; }
+    button { border:0; border-radius:10px; padding:11px 14px; font:inherit; font-weight:700; cursor:pointer; transition:transform .12s,opacity .12s; }
+    button:hover:not(:disabled) { transform:translateY(-1px); }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .primary { background:var(--accent); color:#081326; }
+    .secondary { background:#2a3858; color:var(--text); }
+    .danger { background:#512536; color:#ffdce3; }
+    .success { background:#123d35; color:#aaffdf; }
+    .buttons { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .camera { position:relative; background:#050914; border-radius:14px; overflow:hidden; aspect-ratio:4/3; display:grid; place-items:center; border:1px solid var(--border); }
+    video { width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:none; }
+    .camera-placeholder { padding:18px; text-align:center; color:var(--muted); }
+    .status { margin-top:12px; padding:12px 14px; border-radius:10px; background:#0d1426; border:1px solid var(--border); color:var(--muted); white-space:pre-wrap; }
+    .status.good { color:#aaffdf; border-color:#226b58; background:#102a28; }
+    .status.bad { color:#ffdce3; border-color:#713246; background:#2b1520; }
+    .steps { display:grid; gap:8px; margin:12px 0; }
+    .step { display:flex; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#0d1426; }
+    .pill { font-size:.82rem; color:var(--muted); }
+    .pill.done { color:var(--green); }
+    .person { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid var(--border); }
+    .person:last-child { border-bottom:0; }
+    .person small { display:block; color:var(--muted); margin-top:3px; }
+    .consent { display:flex; align-items:flex-start; gap:9px; font-size:.92rem; color:var(--muted); margin:14px 0; }
+    .consent input { width:auto; margin-top:5px; }
+    .notice { border-left:3px solid #e5b75c; padding:10px 12px; background:#2a2417; color:#f4e2b6; border-radius:6px; font-size:.9rem; }
+    footer { margin-top:18px; font-size:.88rem; color:var(--muted); }
+    @media(max-width:800px) { .layout { grid-template-columns:1fr; } main { margin:18px auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🔐 Controle de Acesso Facial</h1>
+    <p class="muted">Cadastre três ângulos do rosto e depois verifique se existe um cadastro correspondente.</p>
+    <div class="notice">Protótipo educacional. Use apenas com consentimento da pessoa. Os descritores biométricos ficam neste navegador e não são criptografados. Não use como único mecanismo de segurança real.</div>
+  </header>
+
+  <div class="layout">
+    <section class="panel">
+      <h2>1. Câmera e captura</h2>
+      <div class="camera">
+        <video id="video" autoplay muted playsinline></video>
+        <div id="cameraPlaceholder" class="camera-placeholder">Inicie a câmera para começar.</div>
+      </div>
+      <div class="buttons">
+        <button id="startCamera" class="primary">Iniciar câmera</button>
+        <button id="stopCamera" class="secondary" disabled>Desligar câmera</button>
+      </div>
+      <div id="modelStatus" class="status">Carregando os modelos de reconhecimento...</div>
+
+      <label for="mode">Modo</label>
+      <select id="mode">
+        <option value="register">Cadastrar uma pessoa</option>
+        <option value="verify">Verificar acesso</option>
+      </select>
+
+      <div id="registerFields">
+        <label for="personName">Nome para o cadastro</label>
+        <input id="personName" maxlength="70" placeholder="Digite o nome da pessoa" />
+        <p class="muted">Capture cada posição separadamente. A pessoa deve mover a cabeça para o ângulo indicado.</p>
+        <label for="angle">Ângulo que será capturado</label>
+        <select id="angle">
+          <option value="frente">Frente</option>
+          <option value="direita">Lado direito</option>
+          <option value="esquerda">Lado esquerdo</option>
+        </select>
+        <div class="steps">
+          <div class="step"><span>🙂 Rosto de frente</span><span id="state-frente" class="pill">Pendente</span></div>
+          <div class="step"><span>➡️ Lado direito</span><span id="state-direita" class="pill">Pendente</span></div>
+          <div class="step"><span>⬅️ Lado esquerdo</span><span id="state-esquerda" class="pill">Pendente</span></div>
+        </div>
+        <div class="buttons">
+          <button id="capture" class="primary" disabled>Capturar ângulo</button>
+          <button id="savePerson" class="success" disabled>Salvar cadastro completo</button>
+          <button id="clearDraft" class="secondary">Limpar capturas</button>
+        </div>
+      </div>
+
+      <div id="verifyFields" hidden>
+        <p class="muted">Posicione uma pessoa diante da câmera, de preferência olhando para frente, e pressione o botão abaixo.</p>
+        <button id="verify" class="primary" disabled>Verificar acesso</button>
+      </div>
+      <div id="result" class="status" aria-live="polite">Aguardando uma ação.</div>
+    </section>
+
+    <aside class="panel">
+      <h2>2. Pessoas cadastradas</h2>
+      <p class="muted">A verificação só compara com os registros existentes neste navegador.</p>
+      <div id="peopleCount" class="status">0 pessoas cadastradas</div>
+      <div id="peopleList"><p class="muted">Nenhum cadastro ainda.</p></div>
+      <div class="buttons">
+        <button id="deleteAll" class="danger">Apagar todos os cadastros</button>
+      </div>
+      <footer>Se limpar os dados do navegador, os cadastros locais poderão ser perdidos.</footer>
+    </aside>
+  </div>
+  <footer>Biblioteca: <a href="https://github.com/justadudewhohacks/face-api.js/" target="_blank" rel="noopener noreferrer" style="color:#9fc2ff">face-api.js</a>.</footer>
+</main>
+
+<script>
+(() => {
+  const MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
+  const STORAGE_KEY = "cadastros_faciais_demo_v1";
+  const LIMIT_DISTANCE = 0.50; // Valor inicial ilustrativo; precisa ser testado e calibrado.
+  const video = document.getElementById("video");
+  const mode = document.getElementById("mode");
+  const angle = document.getElementById("angle");
+  const personName = document.getElementById("personName");
+  const result = document.getElementById("result");
+  const modelStatus = document.getElementById("modelStatus");
+  const startCamera = document.getElementById("startCamera");
+  const stopCamera = document.getElementById("stopCamera");
+  const capture = document.getElementById("capture");
+  const savePerson = document.getElementById("savePerson");
+  const verify = document.getElementById("verify");
+  const registerFields = document.getElementById("registerFields");
+  const verifyFields = document.getElementById("verifyFields");
+  const cameraPlaceholder = document.getElementById("cameraPlaceholder");
+
+  let stream = null;
+  let modelsReady = false;
+  let draft = { frente: null, direita: null, esquerda: null };
+  let people = loadPeople();
+
+  function loadPeople() {
+    try {
+      const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+      return Array.isArray(value) ? value : [];
+    } catch {
+      return [];
+    }
+  }
+  function savePeople() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(people));
+  }
+  function setResult(message, type = "") {
+    result.textContent = message;
+    result.className = "status" + (type ? " " + type : "");
+  }
+  function updateDraftUI() {
+    for (const key of ["frente", "direita", "esquerda"]) {
+      const el = document.getElementById("state-" + key);
+      const done = Boolean(draft[key]);
+      el.textContent = done ? "Capturado ✓" : "Pendente";
+      el.className = "pill" + (done ? " done" : "");
+    }
+    savePerson.disabled = !(draft.frente && draft.direita && draft.esquerda && personName.value.trim());
+  }
+  function updateControls() {
+    const isRegister = mode.value === "register";
+    registerFields.hidden = !isRegister;
+    verifyFields.hidden = isRegister;
+    capture.disabled = !(modelsReady && stream && isRegister);
+    verify.disabled = !(modelsReady && stream && !isRegister && people.length > 0);
+    updateDraftUI();
+  }
+  function renderPeople() {
+    document.getElementById("peopleCount").textContent =
+      `${people.length} ${people.length === 1 ? "pessoa cadastrada" : "pessoas cadastradas"}`;
+    const list = document.getElementById("peopleList");
+    list.replaceChildren();
+    if (!people.length) {
+      const p = document.createElement("p");
+      p.className = "muted";
+      p.textContent = "Nenhum cadastro ainda.";
+      list.appendChild(p);
+      return;
+    }
+    people.forEach((person) => {
+      const row = document.createElement("div");
+      row.className = "person";
+      const info = document.createElement("div");
+      const strong = document.createElement("strong");
+      strong.textContent = person.name;
+      const small = document.createElement("small");
+      small.textContent = "3 ângulos cadastrados";
+      info.append(strong, small);
+      const del = document.createElement("button");
+      del.className = "danger";
+      del.textContent = "Excluir";
+      del.addEventListener("click", () => {
+        if (!confirm(`Excluir o cadastro de ${person.name}?`)) return;
+        people = people.filter(p => p.id !== person.id);
+        savePeople();
+        renderPeople();
+        updateControls();
+        setResult("Cadastro excluído.", "");
+      });
+      row.append(info, del);
+      list.appendChild(row);
+    });
+  }
+  async function loadModels() {
+    try {
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+      ]);
+      modelsReady = true;
+      modelStatus.textContent = "Modelos carregados. A câmera está pronta para ser iniciada.";
+      modelStatus.className = "status good";
+    } catch (err) {
+      modelStatus.textContent = "Não foi possível carregar os modelos. Verifique a internet e tente abrir a página pelo Live Server.";
+      modelStatus.className = "status bad";
+      console.error(err);
+    }
+    updateControls();
+  }
+  async function startWebcam() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      video.style.display = "block";
+      cameraPlaceholder.hidden = true;
+      startCamera.disabled = true;
+      stopCamera.disabled = false;
+      await video.play();
+      setResult("Câmera ligada. Siga as instruções do modo escolhido.");
+    } catch (err) {
+      setResult("Não foi possível abrir a câmera. Permita o acesso à câmera no navegador e tente novamente.", "bad");
+    }
+    updateControls();
+  }
+  function stopWebcam() {
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    stream = null;
+    video.srcObject = null;
+    video.style.display = "none";
+    cameraPlaceholder.hidden = false;
+    cameraPlaceholder.textContent = "Câmera desligada.";
+    startCamera.disabled = false;
+    stopCamera.disabled = true;
+    updateControls();
+  }
+  async function getDescriptor() {
+    if (!stream || video.readyState < 2) throw new Error("Aguarde a imagem da câmera aparecer.");
+    const detections = await faceapi
+      .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+      .withFaceLandmarks()
+      .withFaceDescriptors();
+    if (detections.length === 0) throw new Error("Nenhum rosto detectado. Melhore a iluminação e centralize o rosto.");
+    if (detections.length > 1) throw new Error("Mais de um rosto detectado. Deixe apenas uma pessoa diante da câmera.");
+    return Array.from(detections[0].descriptor);
+  }
+
+  startCamera.addEventListener("click", startWebcam);
+  stopCamera.addEventListener("click", stopWebcam);
+  mode.addEventListener("change", () => {
+    updateControls();
+    setResult(mode.value === "register" ? "Modo de cadastro selecionado." : "Modo de verificação selecionado.");
+  });
+  personName.addEventListener("input", updateDraftUI);
+  angle.addEventListener("change", () => {
+    const prompts = {
+      frente: "Olhe diretamente para a câmera e mantenha o rosto de frente.",
+      direita: "Vire a cabeça para o seu lado direito, sem sair do enquadramento.",
+      esquerda: "Vire a cabeça para o seu lado esquerdo, sem sair do enquadramento."
+    };
+    setResult(prompts[angle.value]);
+  });
+  capture.addEventListener("click", async () => {
+    capture.disabled = true;
+    try {
+      const descriptor = await getDescriptor();
+      draft[angle.value] = descriptor;
+      updateDraftUI();
+      setResult(`Captura do ângulo "${angle.options[angle.selectedIndex].text}" concluída.`, "good");
+    } catch (err) {
+      setResult(err.message || "Falha ao capturar o rosto.", "bad");
+    } finally {
+      updateControls();
+    }
+  });
+  document.getElementById("clearDraft").addEventListener("click", () => {
+    draft = { frente: null, direita: null, esquerda: null };
+    updateDraftUI();
+    setResult("Capturas do cadastro atual foram apagadas.");
+  });
+  savePerson.addEventListener("click", () => {
+    const name = personName.value.trim();
+    if (!name || !draft.frente || !draft.direita || !draft.esquerda) {
+      setResult("Informe o nome e capture os três ângulos antes de salvar.", "bad");
+      return;
+    }
+    const person = {
+      id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
+      name,
+      descriptors: [draft.frente, draft.direita, draft.esquerda],
+      createdAt: new Date().toISOString()
+    };
+    people.push(person);
+    try {
+      savePeople();
+    } catch (err) {
+      people.pop();
+      setResult("Não foi possível salvar. O armazenamento do navegador pode estar cheio.", "bad");
+      return;
+    }
+    draft = { frente: null, direita: null, esquerda: null };
+    personName.value = "";
+    updateDraftUI();
+    renderPeople();
+    updateControls();
+    setResult(`Cadastro de "${name}" salvo com os três ângulos.`, "good");
+  });
+  verify.addEventListener("click", async () => {
+    verify.disabled = true;
+    try {
+      if (people.length === 0) {
+        setResult("Pá! Acesso Negado — não existem pessoas cadastradas.", "bad");
+        return;
+      }
+      const current = await getDescriptor();
+      let best = { distance: Infinity, person: null };
+      for (const person of people) {
+        for (const saved of person.descriptors) {
+          const distance = faceapi.euclideanDistance(current, saved);
+          if (distance < best.distance) best = { distance, person };
+        }
+      }
+      if (best.person && best.distance <= LIMIT_DISTANCE) {
+        setResult(`Acesso Confirmado\nCadastro correspondente: ${best.person.name}\nDistância de comparação: ${best.distance.toFixed(3)}\nEste resultado é estimativo, não uma prova definitiva de identidade.`, "good");
+      } else {
+        setResult("Pá! Acesso Negado — rosto sem correspondência suficiente nos cadastros.", "bad");
+      }
+    } catch (err) {
+      setResult(err.message || "Não foi possível verificar o rosto.", "bad");
+    } finally {
+      updateControls();
+    }
+  });
+  document.getElementById("deleteAll").addEventListener("click", () => {
+    if (!people.length) return;
+    if (!confirm("Tem certeza de que deseja apagar todos os cadastros deste navegador?")) return;
+    people = [];
+    savePeople();
+    renderPeople();
+    updateControls();
+    setResult("Todos os cadastros foram apagados.");
+  });
+
+  renderPeople();
+  updateControls();
+  if (window.faceapi) loadModels();
+  else {
+    window.addEventListener("load", () => {
+      if (window.faceapi) loadModels();
+      else {
+        modelStatus.textContent = "A biblioteca não carregou. Confira sua conexão com a internet e recarregue a página.";
+        modelStatus.className = "status bad";
+      }
+    });
+  }
+})();
+</script>
+</body>
+</html>
